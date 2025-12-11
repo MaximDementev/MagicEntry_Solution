@@ -4,6 +4,7 @@ using Autodesk.Revit.UI;
 using System;
 using System.IO;
 using System.Windows.Forms;
+using System.Windows.Interop;
 
 namespace MagicEntry.SchemaEditor
 {
@@ -92,10 +93,11 @@ namespace MagicEntry.SchemaEditor
                 }
 
                 // На этом этапе finalSchemaFilePath должен указывать на существующий (возможно, только что созданный) файл
-                using (var editorForm = new SchemaEditorForm(finalSchemaFilePath))
+                using (SchemaEditorForm editorForm = new SchemaEditorForm(finalSchemaFilePath))
                 {
-                    IWin32Window revitWindow = new RevitWindowHandle(commandData.Application.MainWindowHandle);
-                    editorForm.ShowDialog(revitWindow);
+                    var helper = new WindowInteropHelper(editorForm);
+                    helper.Owner = commandData.Application.MainWindowHandle;
+                    editorForm.ShowDialog();
                 }
                 return Result.Succeeded;
             }
@@ -106,13 +108,5 @@ namespace MagicEntry.SchemaEditor
                 return Result.Failed;
             }
         }
-    }
-
-    // Вспомогательный класс для передачи HWND окна Revit в ShowDialog.
-    internal class RevitWindowHandle : IWin32Window
-    {
-        private readonly IntPtr _handle;
-        public RevitWindowHandle(IntPtr handle) { _handle = handle; }
-        public IntPtr Handle => _handle;
     }
 }

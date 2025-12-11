@@ -1,0 +1,349 @@
+﻿<Window x:Class="MagicEntry.SchemaEditor.SchemaEditorForm"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Редактор схемы MagicEntry"
+        Width="1200"
+        Height="800"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResize">
+
+    <!-- Применяем трехсекционную структуру по стандарту UI -->
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <!-- Заголовок и кнопки -->
+            <RowDefinition Height="*"/>
+            <!-- Основной контент -->
+            <RowDefinition Height="Auto"/>
+            <!-- Панель кнопок -->
+        </Grid.RowDefinitions>
+
+        <!-- Секция заголовка и панели инструментов -->
+        <Grid Grid.Row="0" Margin="0,0,0,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0"
+                       Text="Визуальное редактирование конфигурации MagicEntry_Schema.xml"
+                       FontSize="14"
+                       FontWeight="Bold"
+                       VerticalAlignment="Center"/>
+
+            <StackPanel Grid.Column="1"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right">
+                <Button x:Name="btnToggleValidation"
+                        Content="Показать ошибки"
+                        Width="130"
+                        Height="30"
+                        Margin="0,0,10,0"
+                        Click="BtnToggleValidation_Click"/>
+
+                <Button x:Name="btnScanPlugins"
+                        Content="Сканировать..."
+                        Width="100"
+                        Height="30"
+                        Click="BtnScanPlugins_Click"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- Основной контент с табами -->
+        <TabControl Grid.Row="1">
+            <!-- Вкладка PulldownButtons -->
+            <TabItem Header="PulldownButton Definitions">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="200"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Таблица PulldownButton -->
+                    <DataGrid Grid.Row="0"
+                              x:Name="dgvPulldownDefinitions"
+                              AutoGenerateColumns="False"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              SelectionMode="Single"
+                              HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal"
+                              AlternatingRowBackground="#F5F5F5"
+                              Margin="0,0,0,10">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Имя"
+                                                Binding="{Binding Name}"
+                                                Width="*"
+                                                IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Отображаемое имя"
+                                                Binding="{Binding DisplayName}"
+                                                Width="2*"
+                                                IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Вкладка"
+                                                Binding="{Binding RibbonTab}"
+                                                Width="*"
+                                                IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Панель"
+                                                Binding="{Binding RibbonPanel}"
+                                                Width="*"
+                                                IsReadOnly="True"/>
+                            <DataGridCheckBoxColumn Header="Включен"
+                                                    Binding="{Binding Enabled}"
+                                                    Width="80"
+                                                    IsReadOnly="True"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <!-- Кнопки управления PulldownButton -->
+                    <StackPanel Grid.Row="1"
+                                Orientation="Horizontal"
+                                Margin="0,0,0,10">
+                        <Button x:Name="btnAddPulldown"
+                                Content="Добавить"
+                                Width="100"
+                                Height="30"
+                                Margin="0,0,10,0"
+                                Click="BtnAddPulldown_Click"/>
+                        <Button x:Name="btnRemovePulldown"
+                                Content="Удалить"
+                                Width="100"
+                                Height="30"
+                                Margin="0,0,10,0"
+                                Click="BtnRemovePulldown_Click"/>
+                        <Button x:Name="btnTogglePulldownEnable"
+                                Content="Вкл/Выкл"
+                                Width="100"
+                                Height="30"
+                                IsEnabled="False"
+                                Click="BtnTogglePulldownEnable_Click"/>
+                    </StackPanel>
+
+                    <!-- PropertyGrid для PulldownButton -->
+                    <GroupBox Grid.Row="2"
+                              Header="Свойства PulldownButton">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel x:Name="propertyGridMain" Margin="5"/>
+                        </ScrollViewer>
+                    </GroupBox>
+                </Grid>
+            </TabItem>
+
+            <!-- Вкладка плагинов -->
+            <TabItem Header="Plugins">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="200"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="150"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Таблица плагинов -->
+                    <DataGrid Grid.Row="0"
+                              x:Name="dgvPlugins"
+                              AutoGenerateColumns="False"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              SelectionMode="Single"
+                              HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal"
+                              AlternatingRowBackground="#F5F5F5"
+                              Margin="0,0,0,10">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Имя"
+                                                Binding="{Binding Name}"
+                                                Width="*"
+                                                IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Отображаемое имя"
+                                                Binding="{Binding DisplayName}"
+                                                Width="2*"
+                                                IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Класс"
+                                                Binding="{Binding ClassName}"
+                                                Width="2*"
+                                                IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Путь к сборке"
+                                                Binding="{Binding AssemblyPath}"
+                                                Width="2*"
+                                                IsReadOnly="True"/>
+                            <DataGridTextColumn Header="Тип UI"
+                                                Binding="{Binding UIType}"
+                                                Width="*"
+                                                IsReadOnly="True"/>
+                            <DataGridCheckBoxColumn Header="Включен"
+                                                    Binding="{Binding Enabled}"
+                                                    Width="80"
+                                                    IsReadOnly="True"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <!-- Кнопки управления плагинами -->
+                    <Grid Grid.Row="1" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                            <Button x:Name="btnAddPlugin"
+                                    Content="Добавить"
+                                    Width="100"
+                                    Height="30"
+                                    Margin="0,0,10,0"
+                                    Click="BtnAddPlugin_Click"/>
+                            <Button x:Name="btnRemovePlugin"
+                                    Content="Удалить"
+                                    Width="100"
+                                    Height="30"
+                                    Margin="0,0,10,0"
+                                    Click="BtnRemovePlugin_Click"/>
+                            <Button x:Name="btnTogglePluginEnable"
+                                    Content="Вкл/Выкл"
+                                    Width="100"
+                                    Height="30"
+                                    IsEnabled="False"
+                                    Click="BtnTogglePluginEnable_Click"/>
+                        </StackPanel>
+
+                        <!-- Назначение группы Pulldown -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <TextBlock Text="Группа PulldownButton:"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,10,0"/>
+                            <ComboBox x:Name="cmbPulldownGroups"
+                                      Width="150"
+                                      Height="30"
+                                      Margin="0,0,10,0"
+                                      IsEnabled="False"/>
+                            <Button x:Name="btnAssignPulldownGroup"
+                                    Content="Назначить"
+                                    Width="100"
+                                    Height="30"
+                                    IsEnabled="False"
+                                    Click="BtnAssignPulldownGroup_Click"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- PropertyGrid для плагина -->
+                    <GroupBox Grid.Row="2"
+                              Header="Свойства плагина"
+                              Margin="0,0,0,10">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel x:Name="propertyGridPlugins" Margin="5"/>
+                        </ScrollViewer>
+                    </GroupBox>
+
+                    <!-- Секция SubCommands -->
+                    <TextBlock Grid.Row="3"
+                               Text="Подкоманды (для SplitButton):"
+                               FontWeight="Bold"
+                               Margin="0,0,0,5"/>
+
+                    <Grid Grid.Row="4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Grid Grid.Column="0" Margin="0,0,10,0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- Таблица подкоманд -->
+                            <DataGrid Grid.Row="0"
+                                      x:Name="dgvSubCommands"
+                                      AutoGenerateColumns="False"
+                                      CanUserAddRows="False"
+                                      CanUserDeleteRows="False"
+                                      SelectionMode="Single"
+                                      HeadersVisibility="Column"
+                                      GridLinesVisibility="Horizontal"
+                                      AlternatingRowBackground="#F5F5F5"
+                                      Margin="0,0,0,10"
+                                      IsEnabled="False">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Имя"
+                                                        Binding="{Binding Name}"
+                                                        Width="*"
+                                                        IsReadOnly="True"/>
+                                    <DataGridTextColumn Header="Отображаемое имя"
+                                                        Binding="{Binding DisplayName}"
+                                                        Width="2*"
+                                                        IsReadOnly="True"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+
+                            <StackPanel Grid.Row="1" Orientation="Horizontal">
+                                <Button x:Name="btnAddSubCommand"
+                                        Content="Добавить"
+                                        Width="100"
+                                        Height="30"
+                                        Margin="0,0,10,0"
+                                        IsEnabled="False"
+                                        Click="BtnAddSubCommand_Click"/>
+                                <Button x:Name="btnRemoveSubCommand"
+                                        Content="Удалить"
+                                        Width="100"
+                                        Height="30"
+                                        IsEnabled="False"
+                                        Click="BtnRemoveSubCommand_Click"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- PropertyGrid для SubCommand -->
+                        <GroupBox Grid.Column="1"
+                                  Header="Свойства подкоманды">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel x:Name="propertyGridSubCommands" Margin="5"/>
+                            </ScrollViewer>
+                        </GroupBox>
+                    </Grid>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <!-- Панель кнопок по стандарту -->
+        <StackPanel Grid.Row="2"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,10,0,0">
+            <Button Content="Сохранить"
+                    Width="100"
+                    Height="30"
+                    Margin="0,0,10,0"
+                    IsDefault="True"
+                    Click="BtnSave_Click"/>
+
+            <Button Content="Закрыть"
+                    Width="100"
+                    Height="30"
+                    IsCancel="True"
+                    Click="BtnClose_Click"/>
+        </StackPanel>
+
+        <!-- Панель валидации (скрыта по умолчанию) -->
+        <Grid x:Name="panelValidation"
+              Grid.Row="1"
+              Background="White"
+              Visibility="Collapsed"
+              Margin="10,0,0,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0"
+                       Text="Ошибки валидации:"
+                       FontWeight="Bold"
+                       Margin="5"/>
+
+            <ListBox Grid.Row="1"
+                     x:Name="lstValidationErrors"
+                     Margin="5"/>
+        </Grid>
+    </Grid>
+</Window>
