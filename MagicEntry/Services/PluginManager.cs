@@ -6,6 +6,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
 namespace MagicEntry.Services
@@ -255,7 +257,7 @@ namespace MagicEntry.Services
             {
                 if (!string.IsNullOrEmpty(pluginInfo.ClassName))
                 {
-                    var mainPushButtonData = PreparePushButtonData(pluginInfo, pluginAssemblyFullPath, pluginAssemblyDir);
+                    var mainPushButtonData = CreatePushButton(pluginInfo);
                     pulldownButton.AddPushButton(mainPushButtonData);
                     if (pluginInfo.SubCommands.Any()) pulldownButton.AddSeparator();
                 }
@@ -280,33 +282,76 @@ namespace MagicEntry.Services
             }
             else
             {
-                var pushButtonData = PreparePushButtonData(pluginInfo, pluginAssemblyFullPath, pluginAssemblyDir);
+                var pushButtonData = CreatePushButton(pluginInfo);
                 pulldownButton.AddPushButton(pushButtonData);
             }
-        }
+        }       
 
-        // Подготавливает PushButtonData.
-        private PushButtonData PreparePushButtonData(PluginInfo pluginInfo, string pluginAssemblyFullPath, string pluginAssemblyDir)
+
+
+        private PushButtonData CreatePushButton(
+            string name,
+            string text,
+            string assemblyName,
+            string className,
+            string largeIconPath,
+            string smallIconPath,
+            string description = null,
+            double scaleDown = 0.95
+            )
         {
             var pushButtonData = new PushButtonData(
-                name: $"cmd_pb_{pluginInfo.Name.Replace(" ", "_")}_{Guid.NewGuid().ToString("N").Substring(0, 8)}",
-                text: pluginInfo.DisplayName,
-                assemblyName: pluginAssemblyFullPath,
-                className: pluginInfo.ClassName
+                name,
+                text,
+                assemblyName,
+                className
             );
-            if (!string.IsNullOrEmpty(pluginInfo.Description)) pushButtonData.ToolTip = pluginInfo.Description;
 
-            string largeIconPath = string.IsNullOrEmpty(pluginInfo.LargeIcon) ? null : Path.Combine(pluginAssemblyDir, pluginInfo.LargeIcon);
-            string smallIconPath = string.IsNullOrEmpty(pluginInfo.SmallIcon) ? null : Path.Combine(pluginAssemblyDir, pluginInfo.SmallIcon);
-            pushButtonData.LargeImage = LoadBitmapImage(largeIconPath);
+            if (!string.IsNullOrEmpty(description))
+                pushButtonData.ToolTip = description;
+
+            var largeImg = LoadBitmapImage(largeIconPath);
+            if (largeImg != null)
+                largeImg = ScaleDown(largeImg, scaleDown);
+
+            pushButtonData.LargeImage = largeImg;
             pushButtonData.Image = LoadBitmapImage(smallIconPath);
+
             return pushButtonData;
+        }
+
+        public PushButtonData CreatePushButton(PluginInfo pluginInfo,
+            double scaleDown = 0.95)
+        {
+            string pluginAssemblyFullPath = pluginInfo.AssemblyPath;
+            string pluginAssemblyDir = Path.GetDirectoryName(pluginAssemblyFullPath);
+
+            string name =
+                $"cmd_pb_{pluginInfo.Name.Replace(" ", "_")}_{Guid.NewGuid():N}".Substring(0, 8);
+
+            string largeIcon = string.IsNullOrEmpty(pluginInfo.LargeIcon)
+                ? null
+                : Path.Combine(pluginAssemblyDir, pluginInfo.LargeIcon);
+
+            string smallIcon = string.IsNullOrEmpty(pluginInfo.SmallIcon)
+                ? null
+                : Path.Combine(pluginAssemblyDir, pluginInfo.SmallIcon);
+
+            return CreatePushButton(
+                name,
+                pluginInfo.DisplayName,
+                pluginAssemblyFullPath,
+                pluginInfo.ClassName,
+                largeIcon,
+                smallIcon, null, scaleDown
+            );
         }
 
         // Создает PushButton на панели.
         private void CreatePushButtonOnPanel(RibbonPanel ribbonPanel, PluginInfo pluginInfo, string pluginAssemblyFullPath, string pluginAssemblyDir)
         {
-            var pushButtonData = PreparePushButtonData(pluginInfo, pluginAssemblyFullPath, pluginAssemblyDir);
+            var pushButtonData = CreatePushButton(pluginInfo, 1);
+
             ribbonPanel.AddItem(pushButtonData);
         }
 
@@ -318,9 +363,6 @@ namespace MagicEntry.Services
                  text: pluginInfo.DisplayName
             );
             if (!string.IsNullOrEmpty(pluginInfo.Description)) splitButtonData.ToolTip = pluginInfo.Description;
-
-            string largeIconPath = string.IsNullOrEmpty(pluginInfo.LargeIcon) ? null : Path.Combine(pluginAssemblyDir, pluginInfo.LargeIcon);
-            splitButtonData.LargeImage = LoadBitmapImage(largeIconPath);
 
             return splitButtonData;
         }
@@ -335,21 +377,28 @@ namespace MagicEntry.Services
             {
                 foreach (var subCommandInfo in pluginInfo.SubCommands)
                 {
-                    var subPushButtonData = new PushButtonData(
-                        name: $"cmd_sub_{subCommandInfo.Name.Replace(" ", "_")}_{Guid.NewGuid().ToString("N").Substring(0, 8)}",
-                        text: subCommandInfo.DisplayName,
-                        assemblyName: pluginAssemblyFullPath,
-                        className: subCommandInfo.ClassName
-                    );
-                    if (!string.IsNullOrEmpty(subCommandInfo.Description)) subPushButtonData.ToolTip = subCommandInfo.Description;
+                    string subLargeIconPath = string.IsNullOrEmpty(subCommandInfo.LargeIcon)
+                        ? null
+                        : Path.Combine(pluginAssemblyDir, subCommandInfo.LargeIcon);
 
-                    string subLargeIconPath = string.IsNullOrEmpty(subCommandInfo.LargeIcon) ? null : Path.Combine(pluginAssemblyDir, subCommandInfo.LargeIcon);
-                    string subSmallIconPath = string.IsNullOrEmpty(subCommandInfo.SmallIcon) ? null : Path.Combine(pluginAssemblyDir, subCommandInfo.SmallIcon);
-                    subPushButtonData.LargeImage = LoadBitmapImage(subLargeIconPath);
-                    subPushButtonData.Image = LoadBitmapImage(subSmallIconPath);
+                    string subSmallIconPath = string.IsNullOrEmpty(subCommandInfo.SmallIcon)
+                        ? null
+                        : Path.Combine(pluginAssemblyDir, subCommandInfo.SmallIcon);
 
+                    var subPushButtonData = CreatePushButton(
+                        $"cmd_sub_{subCommandInfo.Name.Replace(" ", "_")}_{Guid.NewGuid().ToString("N").Substring(0, 8)}",
+                        subCommandInfo.DisplayName,
+                        pluginAssemblyFullPath,
+                        subCommandInfo.ClassName, 
+                        subLargeIconPath, subSmallIconPath, subCommandInfo.Description);
+
+
+                    splitButton.AddSeparator();
                     splitButton.AddPushButton(subPushButtonData);
                 }
+
+                splitButton.IsSynchronizedWithCurrentItem = false;
+                splitButton.ItemText = pluginInfo.DisplayName;
             }
             else
             {
@@ -383,6 +432,52 @@ namespace MagicEntry.Services
 
             return application.CreateRibbonPanel(tabName, panelName);
         }
+
+        private BitmapImage ScaleDown(BitmapImage source, double scale)
+        {
+            // scale = 0.8 → уменьшение до 80% размера
+
+            int newWidth = (int)(source.PixelWidth * scale);
+            int newHeight = (int)(source.PixelHeight * scale);
+
+            var rtb = new RenderTargetBitmap(
+                source.PixelWidth,   // важно: размер холста НЕ меняем
+                source.PixelHeight,  // из-за Revit
+                source.DpiX,
+                source.DpiY,
+                PixelFormats.Pbgra32);
+
+            var dv = new DrawingVisual();
+            using (var dc = dv.RenderOpen())
+            {
+                double offsetX = (source.PixelWidth - newWidth) / 2.0;
+                double offsetY = (source.PixelHeight - newHeight) / 2.0;
+
+                dc.DrawImage(source, new Rect(offsetX, offsetY, newWidth, newHeight));
+            }
+
+            rtb.Render(dv);
+
+            // --- Convert to BitmapImage ---
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(rtb));
+
+            BitmapImage result = new BitmapImage();
+            using (var ms = new MemoryStream())
+            {
+                encoder.Save(ms);
+                ms.Position = 0;
+
+                result.BeginInit();
+                result.CacheOption = BitmapCacheOption.OnLoad;
+                result.StreamSource = ms;
+                result.EndInit();
+                result.Freeze();
+            }
+
+            return result;
+        }
+
 
         #endregion
     }
