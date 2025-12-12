@@ -69,18 +69,12 @@ namespace MagicEntry.Services
                 _loadedPlugins.Clear();
                 foreach (var pluginInfo in _pluginConfiguration.Plugins.Where(pi => pi.Enabled && pi.LoadOnStartup))
                 {
-                    try
-                    {
-                        IPlugin pluginInstance = _pluginLoader.LoadPlugin(pluginInfo, _MagicEntryBasePath);
-                        if (pluginInstance != null)
+                    IPlugin pluginInstance = _pluginLoader.LoadPlugin(pluginInfo, _MagicEntryBasePath);
+                    if (pluginInstance != null)
                         {
                             _loadedPlugins.Add(pluginInstance);
                         }
-                    }
-                    catch (Exception ex)
-                    {
-                        TaskDialog.Show("Plugin Load Error", $"Ошибка при загрузке экземпляра плагина '{pluginInfo.Name}': {ex.Message}");
-                    }
+                    
                 }
             }
             catch (Exception ex)
@@ -92,99 +86,248 @@ namespace MagicEntry.Services
         // Инициализирует плагины и создает UI.
         public void InitializePluginsAndCreateUI(UIControlledApplication application)
         {
-            if (application == null) throw new ArgumentNullException(nameof(application));
-            if (_pluginConfiguration == null)
-            {
-                TaskDialog.Show("Plugin UI Error", "Конфигурация плагинов не загружена.");
-                return;
-            }
-
-            foreach (var plugin in _loadedPlugins)
+            using (StepTracker.Begin("InitializePluginsAndCreateUI"))
             {
                 try
                 {
-                    plugin.Initialize();
+                    if (application == null)
+                        throw new ArgumentNullException(nameof(application));
+
+                    if (_pluginConfiguration == null)
+                    {
+                        MagicLogger.Write("PluginConfiguration отсутствует — пропуск UI инициализации");
+                        return;
+                    }
+
+                    //
+                    // ────────────────────────────────────────────────────────────────
+                    //   ИНИЦИАЛИЗАЦИЯ ПЛАГИНОВ (ИЗОЛИРОВАННАЯ)
+                    // ────────────────────────────────────────────────────────────────
+                    //
+                    using (StepTracker.Begin("Инициализация плагинов"))
+                    {
+                        foreach (var plugin in _loadedPlugins)
+                        {
+                            using (StepTracker.Begin($"Initialize → {plugin.GetType().Name}"))
+                            {
+                                try
+                                {
+                                    plugin.Initialize();
+                                }
+                                catch (Exception ex)
+                                {
+                                    MagicLogger.WriteError(
+                                        $"Plugin initialize failed → {plugin.GetType().Name}", ex);
+
+                                    MarkPluginAsBroken((PluginInfo)plugin); // твой метод, можешь позже добавить
+
+                                    // продолжаем работать — система не падает
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
+                    //
+                    // ────────────────────────────────────────────────────────────────
+                    //   ГРУППИРОВКА UI ЭЛЕМЕНТОВ
+                    // ────────────────────────────────────────────────────────────────
+                    //
+                    using (StepTracker.Begin("Группировка UI элементов"))
+                    {
+                        var uiElementsByPanel =
+                            _pluginConfiguration.PulldownButtonDefinitions
+                                .Where(pbd => pbd.Enabled)
+                                .Cast<object>()
+                                .Concat(_pluginConfiguration.Plugins.Cast<object>())
+                                .Where(item =>
+                                {
+                                    if (item is PluginInfo pi)
+                                    {
+                                        if (!pi.Enabled || !pi.LoadOnStartup)
+                                            return false;
+
+                                        // исключаем сломанные плагины
+                                        if (IsPluginBroken(pi))
+                                            return false;
+
+                                        return _userAccessService.HasAccess(pi.AllowedDepartments, pi.AllowedUsers);
+                                    }
+                                    return true;
+                                })
+                                .GroupBy(item =>
+                                {
+                                    if (item is PulldownButtonDefinitionInfo pbd)
+                                        return new { Tab = pbd.RibbonTab, Panel = pbd.RibbonPanel };
+
+                                    if (item is PluginInfo pi)
+                                        return new { Tab = pi.RibbonTab, Panel = pi.RibbonPanel };
+
+                                    return null;
+                                })
+                                .Where(g => g.Key != null)
+                                .ToList();
+
+                        MagicLogger.Write($"Найдено групп панелей: {uiElementsByPanel.Count}");
+
+                        //
+                        // ────────────────────────────────────────────────────────────────
+                        //   ЦИКЛ ПО ПАНЕЛЯМ
+                        // ────────────────────────────────────────────────────────────────
+                        //
+                        foreach (var panelGroup in uiElementsByPanel)
+                        {
+                            using (StepTracker.Begin($"Создание панели {panelGroup.Key.Tab}/{panelGroup.Key.Panel}"))
+                            {
+                                var tabName = panelGroup.Key.Tab;
+                                var panelName = panelGroup.Key.Panel;
+
+                                RibbonPanel ribbonPanel = GetOrCreateRibbonPanel(application, tabName, panelName);
+
+                                //
+                                // ────────────────────────────────────────────────────────────────
+                                //   PULLDOWN BUTTONS
+                                // ────────────────────────────────────────────────────────────────
+                                //
+                                using (StepTracker.Begin("Создание Pulldown-кнопок"))
+                                {
+                                    foreach (var pbdInfo in panelGroup
+                                        .OfType<PulldownButtonDefinitionInfo>()
+                                        .Where(pbd => pbd.Enabled))
+                                    {
+                                        using (StepTracker.Begin($"Pulldown: {pbdInfo.Name}"))
+                                        {
+                                            try
+                                            {
+                                                CreateActualPulldownButton(ribbonPanel, pbdInfo);
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                MagicLogger.WriteError(
+                                                    $"Pulldown creation failed → {pbdInfo.Name}", ex);
+                                                continue; // панель не падает
+                                            }
+                                        }
+                                    }
+                                }
+
+                                //
+                                // ────────────────────────────────────────────────────────────────
+                                //   PUSH BUTTONS → ИЗОЛИРОВАННО!
+                                // ────────────────────────────────────────────────────────────────
+                                //
+                                using (StepTracker.Begin("Создание PushButton"))
+                                {
+                                    foreach (var pluginInfo in panelGroup.OfType<PluginInfo>())
+                                    {
+                                        // пропускаем плагин, если он был помечен как сломанный
+                                        if (IsPluginBroken(pluginInfo))
+                                        {
+                                            MagicLogger.Write($"Пропуск → плагин в карантине: {pluginInfo.Name}");
+                                            continue;
+                                        }
+
+                                        using (StepTracker.Begin($"Plugin UI → {pluginInfo.Name}"))
+                                        {
+                                            string pluginAssemblyFullPath =
+                                                Path.Combine(_MagicEntryBasePath, pluginInfo.AssemblyPath);
+
+                                            string pluginAssemblyDir =
+                                                Path.GetDirectoryName(pluginAssemblyFullPath);
+
+                                            try
+                                            {
+                                                if (!string.IsNullOrEmpty(pluginInfo.PulldownGroupName))
+                                                {
+                                                    using (StepTracker.Begin($"Добавление в Pulldown → {pluginInfo.PulldownGroupName}"))
+                                                    {
+                                                        var targetPulldownDef = _pluginConfiguration
+                                                            .PulldownButtonDefinitions
+                                                            .FirstOrDefault(pbd =>
+                                                                pbd.Name == pluginInfo.PulldownGroupName &&
+                                                                pbd.RibbonTab == tabName &&
+                                                                pbd.RibbonPanel == panelName);
+
+                                                        if (targetPulldownDef != null && targetPulldownDef.Enabled)
+                                                        {
+                                                            string pulldownKey =
+                                                                GeneratePulldownKey(tabName, panelName, pluginInfo.PulldownGroupName);
+
+                                                            if (_createdPulldownButtons.TryGetValue(
+                                                                    pulldownKey, out PulldownButton pulldownButton))
+                                                            {
+                                                                AddItemToPulldownButton(
+                                                                    pulldownButton,
+                                                                    pluginInfo,
+                                                                    pluginAssemblyFullPath,
+                                                                    pluginAssemblyDir);
+                                                            }
+                                                            else
+                                                            {
+                                                                MagicLogger.Write($"Pulldown не найден: {pulldownKey}");
+                                                            }
+                                                        }
+                                                        else
+                                                        {
+                                                            MagicLogger.Write(
+                                                                $"PulldownDefinition недоступен → {pluginInfo.PulldownGroupName}");
+                                                        }
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    using (StepTracker.Begin("Добавление на панель"))
+                                                    {
+                                                        AddItemToPanel(
+                                                            ribbonPanel,
+                                                            pluginInfo,
+                                                            pluginAssemblyFullPath,
+                                                            pluginAssemblyDir);
+                                                    }
+                                                }
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                MagicLogger.WriteError(
+                                                    $"PushButton creation failed → {pluginInfo.Name}", ex);
+
+                                                MarkPluginAsBroken(pluginInfo);
+
+                                                // продолжаем, UI не рушится
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
-                    TaskDialog.Show("Plugin Initialization Error", $"Ошибка при внутренней инициализации плагина '{plugin.Info?.Name}': {ex.Message}");
-                }
-            }
-
-            var uiElementsByPanel = _pluginConfiguration.PulldownButtonDefinitions
-                .Where(pbd => pbd.Enabled)
-                .Cast<object>()
-                .Concat(_pluginConfiguration.Plugins.Cast<object>())
-                .Where(item =>
-                {
-                    if (item is PluginInfo pi)
-                    {
-                        if (!pi.Enabled || !pi.LoadOnStartup)
-                            return false;
-
-                        return _userAccessService.HasAccess(pi.AllowedDepartments, pi.AllowedUsers);
-                    }
-                    return true;
-                })
-                .GroupBy(item =>
-                {
-                    if (item is PulldownButtonDefinitionInfo pbd) return new { Tab = pbd.RibbonTab, Panel = pbd.RibbonPanel };
-                    if (item is PluginInfo pi) return new { Tab = pi.RibbonTab, Panel = pi.RibbonPanel };
-                    return null;
-                })
-                .Where(g => g.Key != null);
-
-            foreach (var panelGroup in uiElementsByPanel)
-            {
-                var tabName = panelGroup.Key.Tab;
-                var panelName = panelGroup.Key.Panel;
-                RibbonPanel ribbonPanel = GetOrCreateRibbonPanel(application, tabName, panelName);
-
-                foreach (var pbdInfo in panelGroup.OfType<PulldownButtonDefinitionInfo>().Where(pbd => pbd.Enabled))
-                {
-                    CreateActualPulldownButton(ribbonPanel, pbdInfo);
-                }
-
-                foreach (var pluginInfo in panelGroup.OfType<PluginInfo>())
-                {
-                    string pluginAssemblyFullPath = Path.Combine(_MagicEntryBasePath, pluginInfo.AssemblyPath);
-                    string pluginAssemblyDir = Path.GetDirectoryName(pluginAssemblyFullPath);
-
-                    if (!File.Exists(pluginAssemblyFullPath))
-                    {
-                        TaskDialog.Show("Plugin UI Error", $"Сборка не найдена для плагина '{pluginInfo.Name}': {pluginAssemblyFullPath}");
-                        continue;
-                    }
-
-                    if (!string.IsNullOrEmpty(pluginInfo.PulldownGroupName))
-                    {
-                        var targetPulldownDef = _pluginConfiguration.PulldownButtonDefinitions
-                            .FirstOrDefault(pbd => pbd.Name == pluginInfo.PulldownGroupName && pbd.RibbonTab == tabName && pbd.RibbonPanel == panelName);
-
-                        if (targetPulldownDef != null && targetPulldownDef.Enabled)
-                        {
-                            string pulldownKey = GeneratePulldownKey(tabName, panelName, pluginInfo.PulldownGroupName);
-                            if (_createdPulldownButtons.TryGetValue(pulldownKey, out PulldownButton pulldownButton))
-                            {
-                                AddItemToPulldownButton(pulldownButton, pluginInfo, pluginAssemblyFullPath, pluginAssemblyDir);
-                            }
-                            else
-                            {
-                                TaskDialog.Show("Plugin UI Warning", $"PulldownButton '{pluginInfo.PulldownGroupName}' определен, но не был создан (возможно, из-за ошибки). Плагин '{pluginInfo.Name}' не будет добавлен в него.");
-                            }
-                        }
-                        else if (targetPulldownDef == null)
-                        {
-                            TaskDialog.Show("Plugin UI Warning", $"PulldownButton '{pluginInfo.PulldownGroupName}' не определен для панели '{panelName}'. Плагин '{pluginInfo.Name}' не будет добавлен.");
-                        }
-                    }
-                    else
-                    {
-                        AddItemToPanel(ribbonPanel, pluginInfo, pluginAssemblyFullPath, pluginAssemblyDir);
-                    }
+                    MagicLogger.WriteError("InitializePluginsAndCreateUI", ex);
+                    throw;
                 }
             }
         }
+
+        private void MarkPluginAsBroken(PluginInfo plugin)
+        {
+            if (plugin == null) return;
+
+            MagicLogger.Write($"Плагин помечен как сломанный: {plugin.Name}");
+            BrokenPluginsRegistry.MarkBroken(plugin.Name);
+        }
+
+        private bool IsPluginBroken(PluginInfo plugin)
+        {
+            if (plugin == null) return false;
+
+            return BrokenPluginsRegistry.IsBroken(plugin.Name);
+        }
+
+
+
 
         // Завершение работы плагинов.
         public void ShutdownPlugins()
@@ -309,17 +452,7 @@ namespace MagicEntry.Services
         private void SetContextualHelp(ButtonData buttonData, string helpUrl)
         {
             if (!string.IsNullOrWhiteSpace(helpUrl))
-            {
-                try
-                {
-                    buttonData.SetContextualHelp(new ContextualHelp(ContextualHelpType.Url, helpUrl));
-                }
-                catch (Exception ex)
-                {
-                    // Игнорируем ошибки установки ContextualHelp
-                    System.Diagnostics.Debug.WriteLine($"Ошибка установки ContextualHelp: {ex.Message}");
-                }
-            }
+                buttonData.SetContextualHelp(new ContextualHelp(ContextualHelpType.Url, helpUrl));
         }
 
         private PushButtonData CreatePushButton(
@@ -353,15 +486,24 @@ namespace MagicEntry.Services
             return pushButtonData;
         }
 
-        public PushButtonData CreatePushButton(PluginInfo pluginInfo,
+        public PushButtonData CreatePushButton(
+            PluginInfo pluginInfo,
             double scaleDown = 0.9)
         {
-            string pluginAssemblyFullPath = pluginInfo.AssemblyPath;
+            // 1. Гарантируем абсолютный путь
+            string pluginAssemblyFullPath = Path.GetFullPath(
+                Path.IsPathRooted(pluginInfo.AssemblyPath)
+                    ? pluginInfo.AssemblyPath
+                    : Path.Combine(_MagicEntryBasePath, pluginInfo.AssemblyPath)
+            );
+
             string pluginAssemblyDir = Path.GetDirectoryName(pluginAssemblyFullPath);
 
+            // 2. Имя кнопки
             string name =
                 $"cmd_pb_{pluginInfo.Name.Replace(" ", "_")}_{Guid.NewGuid():N}".Substring(0, 8);
 
+            // 3. Путь к иконкам (только если они указаны)
             string largeIcon = string.IsNullOrEmpty(pluginInfo.LargeIcon)
                 ? null
                 : Path.Combine(pluginAssemblyDir, pluginInfo.LargeIcon);
@@ -370,20 +512,28 @@ namespace MagicEntry.Services
                 ? null
                 : Path.Combine(pluginAssemblyDir, pluginInfo.SmallIcon);
 
+            // 4. Создаём кнопку
             return CreatePushButton(
                 name,
                 pluginInfo.DisplayName,
-                pluginAssemblyFullPath,
+                pluginAssemblyFullPath, 
                 pluginInfo.ClassName,
                 largeIcon,
-                smallIcon, null, scaleDown
+                smallIcon,
+                null,
+                scaleDown
             );
         }
 
+
         // Создает PushButton на панели.
-        private void CreatePushButtonOnPanel(RibbonPanel ribbonPanel, PluginInfo pluginInfo, string pluginAssemblyFullPath, string pluginAssemblyDir)
+        private void CreatePushButtonOnPanel(
+    RibbonPanel ribbonPanel,
+    PluginInfo pluginInfo,
+    string pluginAssemblyFullPath,
+    string pluginAssemblyDir)
         {
-            var pushButtonData = CreatePushButton(pluginInfo, 1);
+            PushButtonData pushButtonData = CreatePushButton(pluginInfo, 1);
 
             if (!string.IsNullOrEmpty(pluginInfo.Description))
                 pushButtonData.ToolTip = pluginInfo.Description;
@@ -392,6 +542,8 @@ namespace MagicEntry.Services
 
             ribbonPanel.AddItem(pushButtonData);
         }
+
+
 
         // Подготавливает SplitButtonData.
         private SplitButtonData PrepareSplitButtonData(PluginInfo pluginInfo, string pluginAssemblyFullPath, string pluginAssemblyDir)
@@ -466,21 +618,13 @@ namespace MagicEntry.Services
             if (string.IsNullOrEmpty(path) || !File.Exists(path))
                 return null;
 
-            try
-            {
-                var bitmapImage = new BitmapImage();
-                bitmapImage.BeginInit();
-                bitmapImage.UriSource = new Uri(path, UriKind.Absolute);
-                bitmapImage.CacheOption = BitmapCacheOption.OnLoad;
-                bitmapImage.EndInit();
-                bitmapImage.Freeze();
-                return bitmapImage;
-            }
-            catch (Exception ex)
-            {
-                TaskDialog.Show("Icon Load Error", $"Ошибка при загрузке иконки '{path}': {ex.Message}");
-                return null;
-            }
+            var bitmapImage = new BitmapImage();
+            bitmapImage.BeginInit();
+            bitmapImage.UriSource = new Uri(path, UriKind.Absolute);
+            bitmapImage.CacheOption = BitmapCacheOption.OnLoad;
+            bitmapImage.EndInit();
+            bitmapImage.Freeze();
+            return bitmapImage;
         }
 
         private BitmapImage ScaleDown(BitmapImage original, double scaleFactor)
@@ -535,15 +679,7 @@ namespace MagicEntry.Services
 
             if (panel == null)
             {
-                try
-                {
-                    panel = app.CreateRibbonPanel(tabName, panelName);
-                }
-                catch (Exception ex)
-                {
-                    TaskDialog.Show("Panel Creation Error", $"Ошибка при создании панели '{panelName}' на вкладке '{tabName}': {ex.Message}");
-                    return null;
-                }
+                panel = app.CreateRibbonPanel(tabName, panelName);
             }
 
             return panel;
