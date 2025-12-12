@@ -1,0 +1,134 @@
+Запрос данных текущего пользователя:
+using var ctx = new PrincipalContext(ContextType.Domain, null, "OU=Institute,DC=kgp,DC=com");
+using var searcher = new PrincipalSearcher(new UserPrincipal(ctx));
+foreach (var result in searcher.FindAll())
+{
+     if (result is UserPrincipal user && !string.IsNullOrEmpty(result.SamAccountName))
+     {
+         DirectoryEntry de = (DirectoryEntry)user.GetUnderlyingObject();
+
+         if (de.Properties["company"]?.Value?.ToString() is string companyName &&
+             !user.DisplayName.Contains("Краснодаргражданпроект") &&
+             !companyName.Contains("Краснодаргражданпроект"))
+         {
+             var dep = de.Properties["department"]?.Value?.ToString() ?? "";
+             yield return new AdUserInfo
+             {
+                 FullName = user.DisplayName ?? "",
+                 Email = user.EmailAddress ?? "",
+                 Phone = de.Properties["telephoneNumber"]?.Value?.ToString() ?? "",
+                 Position = de.Properties["title"]?.Value?.ToString() ?? "",
+                 Login = user.SamAccountName,
+                 Company = companyName,
+                 WorkGroup = dep.Contains("_") ? int.Parse(dep.Substring(dep.IndexOf("_") + 1)) : null,
+                 Department = dep
+             };
+         }
+     }
+}
+
+
+Запрос карточки объекта через PowerShell
+$domain = "KGP.com"
+$username = "dementev"
+
+# Создаем объект для поиска в AD
+$searcher = New-Object DirectoryServices.DirectorySearcher
+$searcher.Filter = "(&(objectClass=user)(sAMAccountName=$username))"
+
+# Выполняем поиск
+$result = $searcher.FindOne()
+
+if ($result) {
+    $user = $result.GetDirectoryEntry()
+    # Выводим свойства пользователя
+    $user | Select-Object *
+} else {
+    Write-Host "Пользователь не найден"
+}
+
+Пример карточки объекта из PowerShell:
+objectClass                     : {top, person, organizationalPerson, user}
+cn                              : {Петров Данил Александрович}
+sn                              : {Петров}
+title                           : {Инженер}
+description                     : {Инженер}
+telephoneNumber                 : {+79183287531}
+givenName                       : {Данил}
+distinguishedName               : {CN=Петров Данил Александрович,OU=Users,OU=BK,OU=OIS,OU=M3,OU=Institute,DC=kgp,DC=com}
+instanceType                    : {4}
+whenCreated                     : {07.08.2025 7:13:15}
+whenChanged                     : {09.12.2025 6:12:26}
+displayName                     : {Петров Данил Александрович}
+uSNCreated                      : {System.__ComObject}
+memberOf                        : {CN=WiFi_Single_Device,OU=GL Groups,OU=Institute,DC=kgp,DC=com, CN=VNC_INS,CN=Users,DC=kgp,DC=com, CN=ВК_ЗАПИСЬ,OU=Group,DC=kgp,DC=com, CN=ОИС_ЗАПИСЬ,OU=Group,DC=kgp,DC=com...}
+uSNChanged                      : {System.__ComObject}
+department                      : {ВК_1}
+company                         : {Мастерская № 3}
+proxyAddresses                  : {SMTP:petrov_d@krgp.ru}
+homeMDB                         : {CN=MDB01,CN=Databases,CN=Exchange Administrative Group (FYDIBOHF23SPDLT),CN=Administrative Groups,CN=KRGP,CN=Microsoft Exchange,CN=Services,CN=Configuration,DC=kgp,DC=com}
+nTSecurityDescriptor            : {System.__ComObject}
+mDBUseDefaults                  : {True}
+mailNickname                    : {petrov_d}
+name                            : {Петров Данил Александрович}
+objectGUID                      : {104 219 37 241 203 117 111 70 191 76 192 14 89 59 146 128}
+userAccountControl              : {512}
+badPwdCount                     : {0}
+codePage                        : {0}
+countryCode                     : {0}
+badPasswordTime                 : {System.__ComObject}
+lastLogon                       : {System.__ComObject}
+pwdLastSet                      : {System.__ComObject}
+primaryGroupID                  : {513}
+objectSid                       : {1 5 0 0 0 0 0 5 21 0 0 0 201 138 13 92 76 64 147 16 88 86 111 95 28 60 0 0}
+accountExpires                  : {System.__ComObject}
+logonCount                      : {67}
+sAMAccountName                  : {petrov_d}
+sAMAccountType                  : {805306368}
+showInAddressBook               : {CN=Все пользователи,CN=All Address Lists,CN=Address Lists Container,CN=KRGP,CN=Microsoft Exchange,CN=Services,CN=Configuration,DC=kgp,DC=com, CN=Mailboxes(VLV),CN=All System A
+                                  ddress Lists,CN=Address Lists Container,CN=KRGP,CN=Microsoft Exchange,CN=Services,CN=Configuration,DC=kgp,DC=com, CN=All Mailboxes(VLV),CN=All System Address Lists,CN=Address L
+                                  ists Container,CN=KRGP,CN=Microsoft Exchange,CN=Services,CN=Configuration,DC=kgp,DC=com, CN=All Recipients(VLV),CN=All System Address Lists,CN=Address Lists Container,CN=KRGP,C
+                                  N=Microsoft Exchange,CN=Services,CN=Configuration,DC=kgp,DC=com...}
+legacyExchangeDN                : {/o=KRGP/ou=Exchange Administrative Group (FYDIBOHF23SPDLT)/cn=Recipients/cn=userdb66c36f}
+userPrincipalName               : {petrov_d@kgp.com}
+objectCategory                  : {CN=Person,CN=Schema,CN=Configuration,DC=kgp,DC=com}
+dSCorePropagationData           : {01.01.1601 0:00:00}
+lastLogonTimestamp              : {System.__ComObject}
+mail                            : {petrov_d@krgp.ru}
+manager                         : {CN=Холодов Антон Юрьевич,OU=Users,OU=BK,OU=OIS,OU=M3,OU=Institute,DC=kgp,DC=com}
+msExchPoliciesIncluded          : {1ad34b14-09e5-4b05-bc36-f6283b50c1fa, {26491cfc-9e50-4857-861b-0cb8df22b5d7}}
+msExchHomeServerName            : {/o=KRGP/ou=Exchange Administrative Group (FYDIBOHF23SPDLT)/cn=Configuration/cn=Servers/cn=SRV-EXCH01}
+msExchMailboxSecurityDescriptor : {System.__ComObject}
+msExchUserAccountControl        : {0}
+msExchMailboxGuid               : {128 87 5 25 191 86 122 70 144 236 209 120 252 131 32 56}
+msExchArchiveWarnQuota          : {System.__ComObject}
+msExchUMDtmfMap                 : {reversedPhone:13578238197+, emailAddress:7387683, lastNameFirstName:, firstNameLastName:}
+msExchWhenMailboxCreated        : {07.08.2025 7:31:49}
+msExchRecipientTypeDetails      : {System.__ComObject}
+msExchRecipientDisplayType      : {1073741824}
+msExchDumpsterQuota             : {31457280}
+msExchVersion                   : {System.__ComObject}
+msExchRBACPolicyLink            : {CN=Default Role Assignment Policy,CN=Policies,CN=RBAC,CN=KRGP,CN=Microsoft Exchange,CN=Services,CN=Configuration,DC=kgp,DC=com}
+msExchArchiveQuota              : {System.__ComObject}
+msExchUserCulture               : {ru-RU}
+msExchTextMessagingState        : {302120705, 16842751}
+msExchDumpsterWarningQuota      : {20971520}
+msExchELCMailboxFlags           : {130}
+msExchCalendarLoggingQuota      : {6291456}
+AuthenticationType              : Secure
+Children                        : {}
+Guid                            : 68db25f1cb756f46bf4cc00e593b9280
+ObjectSecurity                  : System.DirectoryServices.ActiveDirectorySecurity
+NativeGuid                      : 68db25f1cb756f46bf4cc00e593b9280
+NativeObject                    : System.__ComObject
+Parent                          : LDAP://OU=Users,OU=BK,OU=OIS,OU=M3,OU=Institute,DC=kgp,DC=com
+Password                        :
+Path                            : LDAP://CN=Петров Данил Александрович,OU=Users,OU=BK,OU=OIS,OU=M3,OU=Institute,DC=kgp,DC=com
+Properties                      : {objectClass, cn, sn, title...}
+SchemaClassName                 : user
+SchemaEntry                     : System.DirectoryServices.DirectoryEntry
+UsePropertyCache                : True
+Username                        :
+Options                         : {}
+Site                            :
+Container                       :

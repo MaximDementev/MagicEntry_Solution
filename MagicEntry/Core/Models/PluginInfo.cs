@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Xml.Serialization;
-using System.ComponentModel; // Для атрибутов
+using System.ComponentModel;
 
 namespace MagicEntry.Core.Models
 {
@@ -37,9 +37,18 @@ namespace MagicEntry.Core.Models
 
         [Category("1. Основные параметры")]
         [DisplayName("Активен")]
+        [Browsable(false)]
         [Description("Определяет, будет ли плагин загружен и его UI создан. Если false, плагин игнорируется.")]
         [XmlElement("Enabled")]
         public bool Enabled { get; set; } = true;
+
+        [DisplayName("Загружать при старте")]
+        [Browsable(false)]
+        [Description("Определяет, должен ли плагин загружаться и его UI создаваться при старте Revit. Работает только если 'Активен' = true.")]
+        [XmlElement("LoadOnStartup")]
+        public bool LoadOnStartup { get; set; } = true;
+        #endregion
+
 
         [Category("1. Основные параметры")]
         [DisplayName("Тип UI кнопки")]
@@ -52,6 +61,20 @@ namespace MagicEntry.Core.Models
         [Description("Версия плагина, например, 1.0.0. Отображается для информации.")]
         [XmlElement("Version")]
         public string Version { get; set; }
+
+
+        [Category("1. Основные параметры")]
+        [DisplayName("Порядок")]
+        [Description("Порядковый номер плагина при отображении в интерфейсе. Используется для изменения порядка через Drag & Drop.")]
+        [XmlElement("DisplayOrder")]
+        public int DisplayOrder { get; set; }
+
+
+        [Category("1. Основные параметры")]
+        [DisplayName("Имя группы PulldownButton")]
+        [Description("Имя существующего PulldownButton (из секции PulldownButtonDefinitions), в который будет добавлен этот плагин. Оставьте пустым, если плагин должен быть добавлен напрямую на панель.")]
+        [XmlElement("PulldownGroupName")]
+        public string PulldownGroupName { get; set; }
         #endregion
 
         #region Сборка и класс
@@ -66,6 +89,7 @@ namespace MagicEntry.Core.Models
         [Description("Полное имя класса (включая пространство имен), реализующего IExternalCommand. Пример: MyNamespace.MyPluginCommand")]
         [XmlElement("ClassName")]
         public string ClassName { get; set; }
+
         #endregion
 
         #region Отображение в Revit UI
@@ -88,10 +112,16 @@ namespace MagicEntry.Core.Models
         public string RibbonPanel { get; set; }
 
         [Category("3. Отображение в Revit UI")]
-        [DisplayName("Описание (Tooltip)")]
+        [DisplayName("Описание (Tooltip)\nТолько для PushButton")]
         [Description("Подробное описание функциональности плагина, отображаемое при наведении курсора на кнопку.")]
         [XmlElement("Description")]
         public string Description { get; set; }
+
+        [Category("3. Отображение в Revit UI")]
+        [DisplayName("URL справки")]
+        [Description("URL ссылка на справочную страницу, отображаемая через ContextualHelp при нажатии F1. Пример: https://example.com/help/plugin")]
+        [XmlElement("HelpUrl")]
+        public string HelpUrl { get; set; }
 
         [Category("3. Отображение в Revit UI")]
         [DisplayName("Иконка (большая)")]
@@ -106,30 +136,35 @@ namespace MagicEntry.Core.Models
         public string SmallIcon { get; set; }
         #endregion
 
-        #region Поведение при запуске
-        [Category("4. Поведение при запуске")]
-        [DisplayName("Загружать при старте")]
-        [Description("Определяет, должен ли плагин загружаться и его UI создаваться при старте Revit. Работает только если 'Активен' = true.")]
-        [XmlElement("LoadOnStartup")]
-        public bool LoadOnStartup { get; set; } = true;
+
+        #region Управление доступом
+        [Category("4. Управление доступом")]
+        [DisplayName("Разрешённые направления")]
+        [Description("Список направлений, для которых разрешен доступ к плагину. Пример: АР, КР, ВК")]
+        [Browsable(true)]
+        [XmlArray("AllowedDepartments")]
+        [XmlArrayItem("Department")]
+        public List<string> AllowedDepartments { get; set; } = new List<string>();
+
+        [Category("4. Управление доступом")]
+        [DisplayName("Дополнительные пользователи")]
+        [Description("Список логинов почты пользователей, для которых дополнительно разрешен доступ. Пример: ivanov, petrov, sidorov")]
+        [Browsable(true)]
+        [XmlArray("AllowedUsers")]
+        [XmlArrayItem("User")]
+        public List<string> AllowedUsers { get; set; } = new List<string>();
         #endregion
 
-        #region Группировка
-        [Category("5. Группировка")]
-        [DisplayName("Имя группы PulldownButton")]
-        [Description("Имя существующего PulldownButton (из секции PulldownButtonDefinitions), в который будет добавлен этот плагин. Оставьте пустым, если плагин должен быть добавлен напрямую на панель.")]
-        [XmlElement("PulldownGroupName")]
-        public string PulldownGroupName { get; set; }
-        #endregion
+        //--------------------
 
         #region Подкоманды (для SplitButton)
-        [Category("6. Подкоманды (для SplitButton)")]
+        [Category("Подкоманды (для SplitButton)")]
         [DisplayName("Список подкоманд")]
         [Description("Список команд, которые будут доступны в выпадающем меню, если 'Тип UI кнопки' = SplitButton.")]
+        [Browsable(false)]
         [XmlArray("SubCommands")]
         [XmlArrayItem("Command")]
         public List<SubCommandInfo> SubCommands { get; set; } = new List<SubCommandInfo>();
-        #endregion
         #endregion
     }
 }

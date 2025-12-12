@@ -1,6 +1,8 @@
 ﻿using Autodesk.Revit.UI;
 using MagicEntry.Core.Interfaces;
 using MagicEntry.Core.Models;
+using MagicEntry.Core.Services;
+using MagicEntry.Services.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -23,6 +25,7 @@ namespace MagicEntry.Services
         private readonly List<IPlugin> _loadedPlugins;
         private string _MagicEntryBasePath;
         private readonly Dictionary<string, PulldownButton> _createdPulldownButtons;
+        private IUserAccessService _userAccessService;
 
         #endregion
 
@@ -51,6 +54,13 @@ namespace MagicEntry.Services
                 throw new ArgumentException("Базовый путь MagicEntry не может быть пустым.", nameof(MagicEntryBasePath));
 
             _MagicEntryBasePath = MagicEntryBasePath;
+
+            _userAccessService = ServiceProvider.GetService<IUserAccessService>();
+            if (_userAccessService == null)
+            {
+                _userAccessService = new UserAccessService();
+                ServiceProvider.RegisterService<IUserAccessService>(_userAccessService);
+            }
 
             try
             {
@@ -102,12 +112,18 @@ namespace MagicEntry.Services
             }
 
             var uiElementsByPanel = _pluginConfiguration.PulldownButtonDefinitions
-                .Where(pbd => pbd.Enabled) // Учитываем активность PulldownButton
+                .Where(pbd => pbd.Enabled)
                 .Cast<object>()
                 .Concat(_pluginConfiguration.Plugins.Cast<object>())
                 .Where(item =>
                 {
-                    if (item is PluginInfo pi) return pi.Enabled && pi.LoadOnStartup;
+                    if (item is PluginInfo pi)
+                    {
+                        if (!pi.Enabled || !pi.LoadOnStartup)
+                            return false;
+
+                        return _userAccessService.HasAccess(pi.AllowedDepartments, pi.AllowedUsers);
+                    }
                     return true;
                 })
                 .GroupBy(item =>
@@ -124,7 +140,6 @@ namespace MagicEntry.Services
                 var panelName = panelGroup.Key.Panel;
                 RibbonPanel ribbonPanel = GetOrCreateRibbonPanel(application, tabName, panelName);
 
-                // Создаем только активные PulldownButton
                 foreach (var pbdInfo in panelGroup.OfType<PulldownButtonDefinitionInfo>().Where(pbd => pbd.Enabled))
                 {
                     CreateActualPulldownButton(ribbonPanel, pbdInfo);
@@ -143,7 +158,6 @@ namespace MagicEntry.Services
 
                     if (!string.IsNullOrEmpty(pluginInfo.PulldownGroupName))
                     {
-                        // Проверяем, что PulldownButton, к которому привязывается плагин, активен
                         var targetPulldownDef = _pluginConfiguration.PulldownButtonDefinitions
                             .FirstOrDefault(pbd => pbd.Name == pluginInfo.PulldownGroupName && pbd.RibbonTab == tabName && pbd.RibbonPanel == panelName);
 
@@ -163,7 +177,6 @@ namespace MagicEntry.Services
                         {
                             TaskDialog.Show("Plugin UI Warning", $"PulldownButton '{pluginInfo.PulldownGroupName}' не определен для панели '{panelName}'. Плагин '{pluginInfo.Name}' не будет добавлен.");
                         }
-                        // Если targetPulldownDef.Enabled == false, плагин просто не добавляется в него, сообщение не обязательно
                     }
                     else
                     {
@@ -258,11 +271,14 @@ namespace MagicEntry.Services
                 if (!string.IsNullOrEmpty(pluginInfo.ClassName))
                 {
                     var mainPushButtonData = CreatePushButton(pluginInfo);
+                    SetContextualHelp(mainPushButtonData, pluginInfo.HelpUrl);
                     pulldownButton.AddPushButton(mainPushButtonData);
-                    if (pluginInfo.SubCommands.Any()) pulldownButton.AddSeparator();
+
+                    if (pluginInfo.SubCommands != null && pluginInfo.SubCommands.Any())
+                        pulldownButton.AddSeparator();
                 }
 
-                foreach (var subCommandInfo in pluginInfo.SubCommands)
+                foreach (var subCommandInfo in pluginInfo.SubCommands ?? Enumerable.Empty<SubCommandInfo>())
                 {
                     var subPushButtonData = new PushButtonData(
                         name: $"cmd_sub_pd_{subCommandInfo.Name.Replace(" ", "_")}_{Guid.NewGuid().ToString("N").Substring(0, 8)}",
@@ -272,10 +288,12 @@ namespace MagicEntry.Services
                     );
                     if (!string.IsNullOrEmpty(subCommandInfo.Description)) subPushButtonData.ToolTip = subCommandInfo.Description;
 
-                    string subLargeIconPath = string.IsNullOrEmpty(subCommandInfo.LargeIcon) ? null : Path.Combine(pluginAssemblyDir, subCommandInfo.LargeIcon);
-                    string subSmallIconPath = string.IsNullOrEmpty(subCommandInfo.SmallIcon) ? null : Path.Combine(pluginAssemblyDir, subCommandInfo.SmallIcon);
+                    string subLargeIconPath = ResolveIconPath(subCommandInfo.LargeIcon, pluginAssemblyDir);
+                    string subSmallIconPath = ResolveIconPath(subCommandInfo.SmallIcon, pluginAssemblyDir);
                     subPushButtonData.LargeImage = LoadBitmapImage(subLargeIconPath);
                     subPushButtonData.Image = LoadBitmapImage(subSmallIconPath);
+
+                    SetContextualHelp(subPushButtonData, pluginInfo.HelpUrl);
 
                     pulldownButton.AddPushButton(subPushButtonData);
                 }
@@ -283,11 +301,26 @@ namespace MagicEntry.Services
             else
             {
                 var pushButtonData = CreatePushButton(pluginInfo);
+                SetContextualHelp(pushButtonData, pluginInfo.HelpUrl);
                 pulldownButton.AddPushButton(pushButtonData);
             }
-        }       
+        }
 
-
+        private void SetContextualHelp(ButtonData buttonData, string helpUrl)
+        {
+            if (!string.IsNullOrWhiteSpace(helpUrl))
+            {
+                try
+                {
+                    buttonData.SetContextualHelp(new ContextualHelp(ContextualHelpType.Url, helpUrl));
+                }
+                catch (Exception ex)
+                {
+                    // Игнорируем ошибки установки ContextualHelp
+                    System.Diagnostics.Debug.WriteLine($"Ошибка установки ContextualHelp: {ex.Message}");
+                }
+            }
+        }
 
         private PushButtonData CreatePushButton(
             string name,
@@ -321,7 +354,7 @@ namespace MagicEntry.Services
         }
 
         public PushButtonData CreatePushButton(PluginInfo pluginInfo,
-            double scaleDown = 0.95)
+            double scaleDown = 0.9)
         {
             string pluginAssemblyFullPath = pluginInfo.AssemblyPath;
             string pluginAssemblyDir = Path.GetDirectoryName(pluginAssemblyFullPath);
@@ -352,6 +385,11 @@ namespace MagicEntry.Services
         {
             var pushButtonData = CreatePushButton(pluginInfo, 1);
 
+            if (!string.IsNullOrEmpty(pluginInfo.Description))
+                pushButtonData.ToolTip = pluginInfo.Description;
+
+            SetContextualHelp(pushButtonData, pluginInfo.HelpUrl);
+
             ribbonPanel.AddItem(pushButtonData);
         }
 
@@ -359,10 +397,15 @@ namespace MagicEntry.Services
         private SplitButtonData PrepareSplitButtonData(PluginInfo pluginInfo, string pluginAssemblyFullPath, string pluginAssemblyDir)
         {
             var splitButtonData = new SplitButtonData(
-                 name: $"cmd_sb_{pluginInfo.Name.Replace(" ", "_")}_{Guid.NewGuid().ToString("N").Substring(0, 8)}",
-                 text: pluginInfo.DisplayName
+                name: $"cmd_split_{pluginInfo.Name.Replace(" ", "_")}_{Guid.NewGuid().ToString("N").Substring(0, 8)}",
+                text: pluginInfo.DisplayName
             );
-            if (!string.IsNullOrEmpty(pluginInfo.Description)) splitButtonData.ToolTip = pluginInfo.Description;
+
+            if (!string.IsNullOrEmpty(pluginInfo.Description))
+                splitButtonData.ToolTip = pluginInfo.Description;
+
+            string largeIconPath = string.IsNullOrEmpty(pluginInfo.LargeIcon) ? null : Path.Combine(pluginAssemblyDir, pluginInfo.LargeIcon);
+            splitButtonData.LargeImage = LoadBitmapImage(largeIconPath);
 
             return splitButtonData;
         }
@@ -371,113 +414,157 @@ namespace MagicEntry.Services
         private void CreateSplitButtonOnPanel(RibbonPanel ribbonPanel, PluginInfo pluginInfo, string pluginAssemblyFullPath, string pluginAssemblyDir)
         {
             var splitButtonData = PrepareSplitButtonData(pluginInfo, pluginAssemblyFullPath, pluginAssemblyDir);
-            SplitButton splitButton = ribbonPanel.AddItem(splitButtonData) as SplitButton;
+            
 
-            if (splitButton != null)
+            var splitButton = ribbonPanel.AddItem(splitButtonData) as SplitButton;
+
+            if (!string.IsNullOrEmpty(pluginInfo.HelpUrl))
+                splitButton.SetContextualHelp(new ContextualHelp(ContextualHelpType.Url, pluginInfo.HelpUrl));
+
+            if (splitButton == null)
+            {
+                TaskDialog.Show("Plugin UI Error", $"Не удалось создать SplitButton для плагина '{pluginInfo.DisplayName}'.");
+                return;
+            }
+
+
+            if (pluginInfo.SubCommands != null)
             {
                 foreach (var subCommandInfo in pluginInfo.SubCommands)
                 {
-                    string subLargeIconPath = string.IsNullOrEmpty(subCommandInfo.LargeIcon)
-                        ? null
-                        : Path.Combine(pluginAssemblyDir, subCommandInfo.LargeIcon);
+                    var subPushButtonData = new PushButtonData(
+                        name: $"cmd_sub_split_{subCommandInfo.Name.Replace(" ", "_")}_{Guid.NewGuid().ToString("N").Substring(0, 8)}",
+                        text: subCommandInfo.DisplayName,
+                        assemblyName: pluginAssemblyFullPath,
+                        className: subCommandInfo.ClassName
+                    );
 
-                    string subSmallIconPath = string.IsNullOrEmpty(subCommandInfo.SmallIcon)
-                        ? null
-                        : Path.Combine(pluginAssemblyDir, subCommandInfo.SmallIcon);
+                    if (!string.IsNullOrEmpty(subCommandInfo.Description))
+                        subPushButtonData.ToolTip = subCommandInfo.Description;
 
-                    var subPushButtonData = CreatePushButton(
-                        $"cmd_sub_{subCommandInfo.Name.Replace(" ", "_")}_{Guid.NewGuid().ToString("N").Substring(0, 8)}",
-                        subCommandInfo.DisplayName,
-                        pluginAssemblyFullPath,
-                        subCommandInfo.ClassName, 
-                        subLargeIconPath, subSmallIconPath, subCommandInfo.Description);
+                    string subLargeIconPath = ResolveIconPath(subCommandInfo.LargeIcon, pluginAssemblyDir);
+                    string subSmallIconPath = ResolveIconPath(subCommandInfo.SmallIcon, pluginAssemblyDir);
+                    subPushButtonData.LargeImage = ScaleDown(LoadBitmapImage(subLargeIconPath),0.85);
+                    subPushButtonData.Image = LoadBitmapImage(subSmallIconPath);
 
+                    SetContextualHelp(subPushButtonData, pluginInfo.HelpUrl);
 
-                    splitButton.AddSeparator();
                     splitButton.AddPushButton(subPushButtonData);
                 }
+            }
 
-                splitButton.IsSynchronizedWithCurrentItem = false;
-                splitButton.ItemText = pluginInfo.DisplayName;
-            }
-            else
-            {
-                TaskDialog.Show("Plugin UI Error", $"Не удалось создать SplitButton '{pluginInfo.DisplayName}' на панели.");
-            }
+            splitButton.IsSynchronizedWithCurrentItem = false;
         }
 
-        // Загружает BitmapImage.
-        private BitmapImage LoadBitmapImage(string fullPath)
+
+        #endregion
+
+        #region Private Helper Methods
+
+        private BitmapImage LoadBitmapImage(string path)
         {
-            if (string.IsNullOrEmpty(fullPath) || !File.Exists(fullPath)) return null;
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                return null;
+
             try
             {
-                return new BitmapImage(new Uri(fullPath, UriKind.Absolute));
+                var bitmapImage = new BitmapImage();
+                bitmapImage.BeginInit();
+                bitmapImage.UriSource = new Uri(path, UriKind.Absolute);
+                bitmapImage.CacheOption = BitmapCacheOption.OnLoad;
+                bitmapImage.EndInit();
+                bitmapImage.Freeze();
+                return bitmapImage;
             }
-            catch { return null; }
+            catch (Exception ex)
+            {
+                TaskDialog.Show("Icon Load Error", $"Ошибка при загрузке иконки '{path}': {ex.Message}");
+                return null;
+            }
         }
 
-        // Получает или создает RibbonPanel.
-        private RibbonPanel GetOrCreateRibbonPanel(UIControlledApplication application, string tabName, string panelName)
+        private BitmapImage ScaleDown(BitmapImage original, double scaleFactor)
         {
+            if (original == null || scaleFactor >= 1.0)
+                return original;
+
+            try
+            {
+                int newWidth = (int)(original.PixelWidth * scaleFactor);
+                int newHeight = (int)(original.PixelHeight * scaleFactor);
+
+                var scaled = new TransformedBitmap(original, new ScaleTransform(scaleFactor, scaleFactor));
+                var bitmapImage = new BitmapImage();
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(scaled));
+
+                using (var stream = new MemoryStream())
+                {
+                    encoder.Save(stream);
+                    stream.Seek(0, SeekOrigin.Begin);
+
+                    bitmapImage.BeginInit();
+                    bitmapImage.StreamSource = stream;
+                    bitmapImage.CacheOption = BitmapCacheOption.OnLoad;
+                    bitmapImage.EndInit();
+                    bitmapImage.Freeze();
+                }
+
+                return bitmapImage;
+            }
+            catch
+            {
+                return original;
+            }
+        }
+
+        private RibbonPanel GetOrCreateRibbonPanel(UIControlledApplication app, string tabName, string panelName)
+        {
+            try
+            {
+                app.CreateRibbonTab(tabName);
+            }
+            catch { }
+
             RibbonPanel panel = null;
-            try { panel = application.GetRibbonPanels(tabName).FirstOrDefault(p => p.Name.Equals(panelName, StringComparison.OrdinalIgnoreCase)); }
-            catch { /* Вкладка может не существовать */ }
+            try
+            {
+                panel = app.GetRibbonPanels(tabName).FirstOrDefault(p => p.Name == panelName);
+            }
+            catch { }
 
-            if (panel != null) return panel;
+            if (panel == null)
+            {
+                try
+                {
+                    panel = app.CreateRibbonPanel(tabName, panelName);
+                }
+                catch (Exception ex)
+                {
+                    TaskDialog.Show("Panel Creation Error", $"Ошибка при создании панели '{panelName}' на вкладке '{tabName}': {ex.Message}");
+                    return null;
+                }
+            }
 
-            try { application.CreateRibbonTab(tabName); }
-            catch (Autodesk.Revit.Exceptions.ArgumentException ex) when (ex.Message.ToLower().Contains("already exist")) { /* Игнорируем */ }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Ошибка при создании вкладки '{tabName}': {ex.Message}"); }
-
-            return application.CreateRibbonPanel(tabName, panelName);
+            return panel;
         }
 
-        private BitmapImage ScaleDown(BitmapImage source, double scale)
+        string ResolveIconPath(string iconValue, string baseDir)
         {
-            // scale = 0.8 → уменьшение до 80% размера
+            if (string.IsNullOrWhiteSpace(iconValue))
+                return null;
 
-            int newWidth = (int)(source.PixelWidth * scale);
-            int newHeight = (int)(source.PixelHeight * scale);
-
-            var rtb = new RenderTargetBitmap(
-                source.PixelWidth,   // важно: размер холста НЕ меняем
-                source.PixelHeight,  // из-за Revit
-                source.DpiX,
-                source.DpiY,
-                PixelFormats.Pbgra32);
-
-            var dv = new DrawingVisual();
-            using (var dc = dv.RenderOpen())
+            // 1) Если путь абсолютный — используем напрямую
+            if (Path.IsPathRooted(iconValue))
             {
-                double offsetX = (source.PixelWidth - newWidth) / 2.0;
-                double offsetY = (source.PixelHeight - newHeight) / 2.0;
-
-                dc.DrawImage(source, new Rect(offsetX, offsetY, newWidth, newHeight));
+                return File.Exists(iconValue) ? iconValue : null;
             }
 
-            rtb.Render(dv);
+            // 2) Путь относительный — ищем рядом со сборкой
+            string combined = Path.Combine(baseDir, iconValue);
 
-            // --- Convert to BitmapImage ---
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(rtb));
-
-            BitmapImage result = new BitmapImage();
-            using (var ms = new MemoryStream())
-            {
-                encoder.Save(ms);
-                ms.Position = 0;
-
-                result.BeginInit();
-                result.CacheOption = BitmapCacheOption.OnLoad;
-                result.StreamSource = ms;
-                result.EndInit();
-                result.Freeze();
-            }
-
-            return result;
+            return File.Exists(combined) ? combined : null;
         }
-
 
         #endregion
     }
