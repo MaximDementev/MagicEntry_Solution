@@ -56,7 +56,7 @@ namespace MagicEntry.Services
 
                 return null;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return null; // Ошибка при загрузке или создании экземпляра
             }
