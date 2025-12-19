@@ -1,0 +1,115 @@
+# ================================================================
+# Стандарт UI WPF для плагинов MagicEntry
+# ================================================================
+# Общие рекомендации:
+# - Шрифты: Segoe UI, размер 12-14 для текста, 14-16 для заголовков
+# - Основные цвета:
+#     Background окон: #FFFFFF (белый)
+#     Панели инструментов: #F5F5F5
+#     Активные элементы: #E8F5E9 (зеленый для включенных), #E3F2FD (голубой при drag-over)
+#     Границы: #CCCCCC
+#     Ошибки: #FFFEF5 / #FFA500
+# - Кнопки: стандартная высота 30px, ширина 100-150px, закругление 4px
+# - Отступы и паддинги: 5-10px внутри элементов, 10-15px между элементами
+# - Иконки: минимализм, символы через Unicode или FontAwesome
+
+# ================================================================
+# Основная структура окна
+# ================================================================
+Window:
+- Размер: Width=1400, Height=900
+- MinWidth=1200, MinHeight=700
+- WindowStartupLocation=CenterScreen
+- ResizeMode=CanResize
+- Background: #FFFFFF
+
+Window.Resources:
+- Стиль для карточек плагинов (PluginCardStyle):
+    Border, Background=White, BorderBrush=#CCCCCC, BorderThickness=1, CornerRadius=4
+    Margin=5, Padding=10, Cursor=Hand
+    Triggers:
+        IsMouseOver → Background #F0F0F0
+        Enabled=True → Background #E8F5E9
+- Стиль для панелей групп с drag-over (PanelGroupStyle):
+    BorderBrush=#0078D4, BorderThickness=2, Background=Transparent, CornerRadius=4, Margin=5, Padding=10
+    Triggers:
+        Tag=DragOver → Background #E3F2FD, BorderBrush #2196F3, BorderThickness=3
+
+# ================================================================
+# Сетка окна (Grid)
+# ================================================================
+RowDefinitions:
+1. Toolbar: Height=Auto
+2. Content (TabControl): Height=*
+3. Validation panel: Height=Auto
+4. Buttons panel: Height=Auto
+
+# ================================================================
+# Панель инструментов (Toolbar)
+# ================================================================
+Border:
+- Background: #F5F5F5, BorderBrush #CCCCCC, BorderThickness=0,0,0,1, Padding=10
+- Сетка с 2 колонками:
+    Column 0: Заголовок TextBlock, FontSize=14, Bold
+    Column 1: StackPanel горизонтально:
+        - Поиск: TextBlock + TextBox Width=250, Height=25
+        - Фильтр Tab: ComboBox Width=150, Height=25
+        - Чекбокс Показать выключенные: Margin=15,0,0,0, IsChecked=True
+
+# ================================================================
+# Основной контент (TabControl)
+# ================================================================
+TabControl:
+- Margin=10,10,10,0
+- Вкладки:
+    1. Plugins:
+        Grid с 5 колонками:
+            0: ScrollViewer + StackPanel (pluginGroupsContainer)
+            1: GridSplitter, Width=5, Background #CCCCCC
+            2: GroupBox "Свойства плагина", ScrollViewer + StackPanel
+            3: GridSplitter для SubCommands (Collapsed)
+            4: Grid SubCommands panel (Collapsed)
+    2. PulldownButton Definitions:
+        Grid с 3 колонками:
+            0: ScrollViewer + StackPanel (pulldownCardsContainer)
+            1: GridSplitter, Width=5, Background #CCCCCC
+            2: GroupBox "Свойства PulldownButton", ScrollViewer + StackPanel
+
+# ================================================================
+# Validation Panel (нижняя панель ошибок)
+# ================================================================
+Border:
+- Background #FFFEF5, BorderBrush #FFA500, BorderThickness 0,2,0,0, Visibility=Collapsed
+Grid:
+- Row 0: Заголовок с текстом "⚠ Ошибки валидации" + кнопка свернуть, Background #FFE5CC
+- Row 1: ListView x:Name=lstValidationErrors, Margin=10, MaxHeight=200
+
+# ================================================================
+# Панель кнопок (Footer)
+# ================================================================
+Border:
+- Background #F5F5F5, BorderBrush #CCCCCC, BorderThickness=0,1,0,0, Padding=10
+- Grid с 2 StackPanel:
+    Left:
+        - Кнопки: "Сканировать...", "Показать ошибки"
+    Right:
+        - Текст статус (txtStatus), FontStyle=Italic
+        - Кнопки: "Сохранить (Ctrl+S)" (IsDefault=True), "Закрыть" (IsCancel=True)
+- Кнопки: Width=100-150px, Height=30px, Margin 5-10px
+
+# ================================================================
+# Общие рекомендации по стилю элементов
+# ================================================================
+- Все ScrollViewer вертикальные, с Auto скроллом
+- Все GroupBox с заголовком, Margin=5, Padding=5
+- Стиль Card/Plugin: визуально выделен, цвет при hover и включенном состоянии
+- GridSplitter: четкий цвет #CCCCCC, толщина 5px
+- Шрифты:
+    - Заголовки: Bold, 14-16
+    - Контент: Regular, 12-14
+- Цвета для ошибок/внимания: оранжевый #FFA500, светло-желтый #FFFEF5
+- Padding и Margin по умолчанию: 5-10px, согласовано между всеми элементами
+- Визуальная иерархия:
+    - Основная сетка → TabControl → Панели/карточки → ScrollViewer → StackPanel → элементы
+- Использовать DataTemplate и Binding для динамических списков (плагины, ошибки)
+- Минимизировать inline-стили, использовать ресурсы Window.Resources

@@ -1,0 +1,33 @@
+ # Все пользователи
+$searcher = New-Object DirectoryServices.DirectorySearcher
+$searcher.Filter = "(&(objectClass=user)(objectCategory=person))"
+$searcher.PageSize = 1000
+
+$searcher.PropertiesToLoad.Add("sAMAccountName") | Out-Null
+$searcher.PropertiesToLoad.Add("department")     | Out-Null
+
+$users = $searcher.FindAll()
+
+$list = $users | ForEach-Object {
+    $user = ($_.Properties["sAMAccountName"] | Select-Object -First 1)
+    $dept = ($_.Properties["department"]     | Select-Object -First 1)
+
+    if (-not $dept) { return }  # пропускаем без департамента
+
+    [PSCustomObject]@{
+        User       = $user
+        Department = $dept
+    }
+}
+
+$list |
+    Group-Object Department |
+    Sort-Object Name |
+    ForEach-Object {
+        Write-Host ""
+        Write-Host "[$($_.Name)]"
+
+        $_.Group |
+            Sort-Object User |
+            ForEach-Object { Write-Host $_.User }
+    }

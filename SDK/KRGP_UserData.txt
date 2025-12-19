@@ -1,0 +1,18 @@
+# Укажите домен и имя пользователя
+$domain = "KGP.com"
+$username = "petrov"
+
+# Создаем объект для поиска в AD
+$searcher = New-Object DirectoryServices.DirectorySearcher
+$searcher.Filter = "(&(objectClass=user)(sAMAccountName=$username))"
+
+# Выполняем поиск
+$result = $searcher.FindOne()
+
+if ($result) {
+    $user = $result.GetDirectoryEntry()
+    # Выводим свойства пользователя
+    $user | Select-Object *
+} else {
+    Write-Host "Пользователь не найден"
+}

@@ -1,0 +1,74 @@
+$tempFile = [System.IO.Path]::GetTempFileName() + ".txt"
+$allChanges = ""
+
+function Remove-NonAscii($text) { -join ($text.ToCharArray() | Where-Object { [int]$_ -lt 128 }) }
+
+function ShouldIgnoreFile($file) {
+    if (-not (Test-Path $file)) { return $false }
+    # Игнорируем WinForms, где есть InitializeComponent()
+    $content = Get-Content $file -Raw -Encoding UTF8
+    if ($content -match "void\s+InitializeComponent\s*\(") { return $true }
+    return $false
+}
+
+function CleanLines($text) {
+    $lines = $text -split "`n"
+    $lines = $lines | Where-Object {
+        $_ -notmatch '^\s*//.*$' -and `
+        $_ -notmatch '^\s*$' -and `
+        $_ -notmatch '#region' -and `
+        $_ -notmatch '#endregion' -and `
+        $_ -notmatch 'using System' -and `
+        $_ -notmatch 'using MagicEntry'
+    }
+    return $lines -join "`n"
+}
+
+function CompactDiff($diffText, $maxLines = 20) {
+    $lines = $diffText -split "`n" | Where-Object { $_ -match '^[\+\-]' }
+    $lines = CleanLines($lines -join "`n") -split "`n"
+    if ($lines.Count -gt $maxLines) { $lines = $lines[0..($maxLines-1)] + @("... (truncated)") }
+    return ($lines -join "`n")
+}
+
+# MODIFIED
+$modified = git diff --name-only
+foreach ($file in $modified) {
+    if (ShouldIgnoreFile($file)) { continue }
+    $diffText = git diff -- $file | Out-String
+    $diffText = Remove-NonAscii $diffText
+    $diffText = CompactDiff $diffText
+    if ($diffText) { $allChanges += "+++ MODIFIED: $file`n$diffText`n`n" }
+}
+
+# NEW FILE
+$untracked = git ls-files --others --exclude-standard
+foreach ($file in $untracked) {
+    if (ShouldIgnoreFile($file)) { continue }
+    if (Test-Path $file) {
+        $content = Get-Content $file -Raw -Encoding UTF8
+        $content = Remove-NonAscii $content
+        $content = CleanLines($content)
+        $lines = ($content -split "`n")[0..([math]::Min(9, ($content -split "`n").Count - 1))]
+        $allChanges += "+++ NEW FILE: $file`n" + ($lines -join "`n") + "`n...`n`n"
+    }
+}
+
+# DELETED
+$deleted = git ls-files --deleted
+foreach ($file in $deleted) {
+    if (ShouldIgnoreFile($file)) { continue }
+    $allChanges += "+++ DELETED: $file`n`n"
+}
+
+$allChanges += "
+Напиши текст коммита на русском. 
+Опиши только конкретные изменения, которые видны пользователю или влияют на его работу. 
+Сделай коротко, понятно обычному пользователю, без технических деталей реализации. 
+Используй маркированные списки для разделения пунктов
+
+"
+
+[System.IO.File]::WriteAllText($tempFile, $allChanges, [System.Text.Encoding]::UTF8)
+Start-Process notepad.exe $tempFile
+Clear-Host
