@@ -78,8 +78,8 @@ namespace MagicEntry.Plugins.SamplePlugin
             try
             {
                 // Получаем сервисы
-                var pathService = MagicEntryServiceProvider.GetService<IPathService>();
-                var initService = MagicEntryServiceProvider.GetService<IPluginInitializationService>();
+                var pathService = ServiceProvider.GetService<IPathService>();
+                var initService = ServiceProvider.GetService<IPluginInitializationService>();
                 var assemblyService = MagicEntryServiceProvider.GetService<IAssemblyService>();
                 if (pathService == null || initService == null || assemblyService == null)
                 {

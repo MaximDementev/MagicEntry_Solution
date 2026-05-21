@@ -1,0 +1,18 @@
+$company = "Мастерская № 2"
+
+$searcher = New-Object DirectoryServices.DirectorySearcher
+$searcher.Filter = "(&(objectClass=user)(company=$company))"
+$searcher.PageSize = 1000
+$searcher.PropertiesToLoad.Add("sAMAccountName") | Out-Null
+
+$usernames = $searcher.FindAll() | ForEach-Object {
+    "$($_.Properties["samaccountname"][0]),"
+}
+
+$tempFile = [System.IO.Path]::GetTempFileName()
+
+$usernames | Set-Content -Encoding UTF8 $tempFile
+
+notepad.exe $tempFile
+
+Clear-Host
